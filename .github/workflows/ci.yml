@@ -6,38 +6,55 @@ on:
       - dev
 
 jobs:
+
   build:
-    name: Job 1 - Build Docker Image
+    name: "Job 1 - Build Docker Image"
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout du code source
         uses: actions/checkout@v3
 
-      - name: Build Docker image
+      - name: Construction de l'image Docker
         run: docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/intranet-newdeal:dev .
 
+      - name: Sauvegarder l'image
+        run: docker save ${{ secrets.DOCKERHUB_USERNAME }}/intranet-newdeal:dev -o intranet-newdeal.tar
+
+      - name: Uploader l'image comme artefact
+        uses: actions/upload-artifact@v3
+        with:
+          name: docker-image
+          path: intranet-newdeal.tar
+
   security-scan:
-    name: Job 2 - Security Scan
+    name: "Job 2 - Security Scan"
     runs-on: ubuntu-latest
     needs: build
     steps:
-      - name: Checkout code
+      - name: Checkout du code source
         uses: actions/checkout@v3
 
-      - name: Build Docker image for scan
-        run: docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/intranet-newdeal:dev .
+      - name: Télécharger l'image Docker
+        uses: actions/download-artifact@v3
+        with:
+          name: docker-image
 
-      - name: Install Trivy (vulnerability scan)
+      - name: Charger l'image Docker
+        run: docker load -i intranet-newdeal.tar
+
+      - name: Installer Trivy
         run: |
+          sudo apt-get update -y
           sudo apt-get install -y wget apt-transport-https gnupg
           wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
           echo "deb https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update && sudo apt-get install -y trivy
+          sudo apt-get update -y
+          sudo apt-get install -y trivy
 
-      - name: Scan image vulnerabilities
-        run: trivy image ${{ secrets.DOCKERHUB_USERNAME }}/intranet-newdeal:dev
+      - name: Scan des vulnérabilités
+        run: trivy image --severity HIGH,CRITICAL --format table ${{ secrets.DOCKERHUB_USERNAME }}/intranet-newdeal:dev
 
-      - name: Scan secrets in code (Gitleaks)
+      - name: Scan des secrets (Gitleaks)
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -46,7 +63,6 @@ jobs:
     name: "Job 3 - Push vers Docker Hub"
     runs-on: ubuntu-latest
     needs: security-scan
-
     steps:
       - name: Checkout du code source
         uses: actions/checkout@v3
@@ -64,8 +80,3 @@ jobs:
 
       - name: Push de l'image vers Docker Hub
         run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/intranet-newdeal:dev
-
-      - name: Build and Push image
-        run: |
-          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/intranet-newdeal:dev .
-          docker push ${{ secrets.DOCKERHUB_USERNAME }}/intranet-newdeal:dev
